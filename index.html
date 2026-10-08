@@ -49,7 +49,7 @@
           <input class="inp" placeholder="Title" x-model="s.title" required>
           <input class="inp" type="date" x-model="s.date" required>
           <div class="flex gap-2"><input class="inp" type="time" x-model="s.start" required><input class="inp" type="time" x-model="s.end" required></div>
-          <div class="flex gap-2"><input class="inp" placeholder="Venue" x-model="s.venue"><input class="inp w-24" type="number" min="1" placeholder="Slots" x-model="s.capacity"></div>
+          <div class="flex gap-2"><select class="inp" x-model="s.venue" required><option value="">Select location</option><template x-for="l in locations" :key="l"><option :value="l" x-text="l"></option></template></select><input class="inp w-24" type="number" min="1" placeholder="Slots" x-model="s.capacity"></div>
           <button class="btn w-full">Post session</button></form></details>
       <p x-show="!sessions.length" class="text-center text-slate-400 py-8">No sessions posted yet.</p>
       <template x-for="x in sessions" :key="x.sessionId"><div class="card space-y-2">
@@ -71,7 +71,7 @@
       <template x-for="m in mine" :key="m.session.sessionId"><div class="card space-y-2">
         <div class="font-semibold" x-text="m.session.title"></div><div class="text-xs text-slate-500" x-text="m.session.date+' · '+m.session.start+'–'+m.session.end+' · '+m.session.venue"></div>
         <div class="text-sm" :class="m.status=='confirmed'?'text-emerald-700':'text-amber-600'" x-text="m.status=='confirmed'?'✓ Confirmed':'Awaiting confirmation'"></div>
-        <div x-show="m.trainee" class="bg-blue-50 rounded-lg p-3 text-sm space-y-1"><div class="font-semibold">Your trainee: <span x-text="m.trainee?.name"></span> (age <span x-text="m.trainee?.age"></span>)</div><div><b>Needs:</b> <span x-text="m.trainee?.needs||'–'"></span></div><div class="whitespace-pre-line text-slate-600"><b>Notes:</b> <span x-text="m.trainee?.notes||'–'"></span></div></div>
+        <div class="bg-blue-50 rounded-lg p-3 text-sm space-y-1"><template x-if="m.trainee"><div class="space-y-1"><div class="font-semibold">Your trainee: <span x-text="m.trainee.name"></span><template x-if="m.trainee.age"><span> (age <span x-text="m.trainee.age"></span>)</span></template></div><div x-show="m.trainee.needs"><b>Needs:</b> <span x-text="m.trainee.needs"></span></div><div x-show="m.trainee.notes" class="whitespace-pre-line text-slate-600"><b>Notes:</b> <span x-text="m.trainee.notes"></span></div></div></template><div x-show="!m.trainee" class="text-slate-500">No trainee information available yet.</div></div>
         <div x-show="m.clockIn" class="text-xs text-slate-500" x-text="m.clockOut?('Clocked out · '+m.hours+' hours'):'Clocked in at '+fmt(m.clockIn)+' – show your QR to clock out'"></div>
         <div x-show="m.clockIn" class="space-y-2 border-t pt-2"><div class="text-sm font-medium">Session feedback</div>
           <textarea class="inp" rows="2" placeholder="How did the session go?" x-model="fb[m.session.sessionId].feedback"></textarea>
@@ -81,62 +81,95 @@
     </div>
 
     <!-- Volunteer: QR -->
-    <div x-show="tab=='qr'" class="card text-center space-y-3"><p class="text-sm text-slate-600">Show this to a volunteer leader to clock in, and again to clock out.</p><div id="qr" class="flex justify-center"></div><div class="font-semibold" x-text="user?.name"></div></div>
+    <div x-show="tab=='qr'" class="card text-center space-y-3">
+      <h2 x-show="qr.state!='none'" class="text-3xl font-extrabold tracking-wide" :class="qr.state=='in'?'text-emerald-600':'text-orange-600'" x-text="qr.state=='in'?'CLOCK IN':'CLOCK OUT'"></h2>
+      <div x-show="qr.state!='none'" class="text-sm text-slate-600" x-text="qr.title"></div>
+      <div id="qr" x-show="qr.state!='none'" class="flex justify-center"></div>
+      <p x-show="qr.state!='none'" class="text-xs text-slate-400">Refreshes automatically - keep this screen open</p>
+      <p x-show="qr.state=='none'" class="text-slate-500 py-6">No active session today. Your QR appears here once you have a confirmed booking for today.</p>
+      <div class="font-semibold" x-text="user?.name"></div></div>
 
     <!-- Admin: scan -->
     <div x-show="tab=='scan'" class="space-y-3">
-      <select class="inp" x-model="scanSession" @change="startScan()"><option value="">Choose session to scan for…</option><template x-for="x in sessions" :key="x.sessionId"><option :value="x.sessionId" x-text="x.date+' · '+x.title"></option></template></select>
+      <p class="text-sm text-slate-600">Point the camera at a volunteer's QR. It clocks them in or out automatically.</p>
       <div id="reader" class="rounded-xl overflow-hidden"></div>
       <div x-show="last" class="card text-center font-medium" x-text="last"></div>
     </div>
 
     <!-- Admin: members -->
-    <div x-show="tab=='members'" class="card divide-y">
-      <template x-for="u in users" :key="u.userId"><div class="py-2 flex items-center justify-between text-sm"><div><div x-text="u.name"></div><div class="text-xs text-slate-500" x-text="u.username+' · '+u.phone+' · '+u.role"></div></div>
-        <button class="btn !py-1.5" x-show="u.userId!=user.userId" @click="setRole(u)" x-text="u.role=='admin'?'Make volunteer':'Promote to admin'"></button></div></template>
+    <div x-show="tab=='members'" class="space-y-2">
+      <input class="inp" type="search" placeholder="Search name, email, phone, Telegram…" x-model="q">
+      <p class="text-xs text-slate-400" x-text="filtered.length+' of '+users.length+' accounts'"></p>
+      <template x-for="u in filtered" :key="u.userId"><details class="card">
+        <summary class="cursor-pointer flex justify-between"><span class="font-medium" x-text="u.name"></span><span class="text-xs bg-slate-100 rounded-full px-2 py-1" x-text="u.role"></span></summary>
+        <dl class="text-sm mt-3 space-y-1"><template x-for="[k,v] in [['Username',u.username],['Birthday',u.birthday],['Email',u.email],['Phone',u.phone],['Telegram',u.telegram],['Emergency contact',u.ecName+' · '+u.ecPhone],['Joined',(u.createdAt||'').slice(0,10)]]"><div class="flex gap-2"><dt class="w-32 shrink-0 text-slate-500" x-text="k"></dt><dd class="break-all" x-text="v||'–'"></dd></div></template></dl>
+        <button class="btn !py-1.5 mt-3" x-show="u.userId!=user.userId" @click="setRole(u)" x-text="u.role=='admin'?'Make volunteer':'Promote to admin'"></button>
+      </details></template>
     </div>
   </section>
 </div>
 
 <script>
 // ---- CONFIG: paste your deployed GAS web-app URL (use a separate dev deployment for testing) ----
-const API_URL = 'https://script.google.com/macros/s/AKfycbx0oba3zrQpMOhgu0OvNiSsWH4CkrKqLxtzdDOGEKPuWc275Oo1XCw8SXfV71JJJpAdrg/exec';
+const API_URL = 'PASTE_YOUR_GAS_WEB_APP_URL_HERE';
 async function api(action, data = {}) {
   const r = await fetch(API_URL, {method: 'POST', body: JSON.stringify({action, token: localStorage.token, ...data})}); // text/plain => no CORS preflight
   const j = await r.json(); if (!j.ok) throw new Error(j.error); return j.data;
 }
+// ---- fuzzy search: every word typed must match (substring, or within 1-2 typos of a word/prefix) ----
+function lev(a, b) { const d = Array.from({length: a.length + 1}, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] == b[j-1] ? 0 : 1)); return d[a.length][b.length]; }
+function fuzzy(q, u) {
+  const hay = [u.name, u.username, u.email, u.phone, u.telegram, u.ecName].join(' ').toLowerCase(), words = hay.split(/[\s@._-]+/); let score = 0;
+  for (const t of q.toLowerCase().split(/\s+/).filter(Boolean)) {
+    if (hay.includes(t)) { score += 10; continue; }
+    const allow = t.length <= 3 ? 0 : t.length <= 6 ? 1 : 2; let best = 9;
+    for (const w of words) best = Math.min(best, lev(t, w), lev(t, w.slice(0, t.length)));
+    if (best > allow) return 0; score += 5 - best;
+  } return score;
+}
 function app() { return {
-  user: null, mode: 'login', tab: 'sessions', busy: false, msg: '', f: {}, s: {}, sessions: [], mine: [], users: [], fb: {}, scanSession: '', last: '', scanner: null, locked: false,
+  user: null, mode: 'login', tab: 'sessions', busy: false, msg: '', f: {}, s: {venue: 'MINDS Woodlands Gardens School'}, sessions: [], mine: [], users: [], fb: {}, q: '', qr: {state: 'none'}, qrAt: 0, qrTimer: null, locations: ['MINDS Woodlands Gardens School'], last: '', scanner: null, locked: false,
   get isAdmin() { return this.user?.role == 'admin'; },
-  fmt: t => new Date(t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+  get filtered() { const q = this.q.trim(); return q ? this.users.map(u => ({u, s: fuzzy(q, u)})).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.u) : this.users; },
+  fmt: t => new Date(t).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Singapore'}),
   async run(fn, ok) { this.busy = true; try { const r = await fn(); if (ok) this.toast(ok); return r; } catch (e) { this.toast(e.message); } finally { this.busy = false; } },
   toast(m) { this.msg = m; setTimeout(() => this.msg = '', 3500); },
   init() { try { this.user = JSON.parse(localStorage.user); } catch (e) {} if (this.user) this.go('sessions'); if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js'); },
   async enter(d) { localStorage.token = d.token; this.user = d; localStorage.user = JSON.stringify(d); this.go('sessions'); },
   login() { this.run(async () => this.enter(await api('login', this.f))); },
   register() { this.run(async () => this.enter(await api('register', this.f)), 'Welcome!'); },
-  logout() { localStorage.clear(); this.user = null; this.stopScan(); },
+  logout() { localStorage.clear(); this.user = null; this.stopScan(); clearInterval(this.qrTimer); },
   async go(t) {
-    this.tab = t; this.stopScan();
+    this.tab = t; this.stopScan(); clearInterval(this.qrTimer);
     try {
       if (t == 'sessions') this.sessions = await api('listSessions');
       if (t == 'mine') { this.mine = await api('myBookings'); this.mine.forEach(m => this.fb[m.session.sessionId] ||= {feedback: m.feedback || '', traineeUpdate: ''}); }
-      if (t == 'qr') this.$nextTick(() => { const el = document.getElementById('qr'); el.innerHTML = ''; new QRCode(el, {text: this.user.userId, width: 220, height: 220}); });
-      if (t == 'scan') this.sessions = await api('listSessions');
+      if (t == 'qr') { await this.refreshQr(true); this.qrTimer = setInterval(() => this.refreshQr(), 5000); }
+      if (t == 'scan') this.startScan();
       if (t == 'members') this.users = await api('listUsers');
     } catch (e) { this.toast(e.message); if (/expired/.test(e.message)) this.logout(); }
   },
   book(id) { this.run(async () => { await api('book', {sessionId: id}); this.go('sessions'); }, 'Booked! A leader will confirm shortly.'); },
   confirm(id) { this.run(async () => { await api('confirmBooking', {bookingId: id}); this.go('sessions'); }, 'Confirmed & trainee assigned'); },
-  createSession() { this.run(async () => { await api('createSession', this.s); this.s = {}; this.go('sessions'); }, 'Session posted'); },
+  createSession() { this.run(async () => { await api('createSession', this.s); this.s = {venue: this.locations[0]}; this.go('sessions'); }, 'Session posted'); },
   saveFb(id) { this.run(() => api('saveFeedback', {sessionId: id, ...this.fb[id]}), 'Feedback saved'); },
   setRole(u) { this.run(async () => { await api('setRole', {userId: u.userId, role: u.role == 'admin' ? 'volunteer' : 'admin'}); this.go('members'); }, 'Role updated'); },
+  async refreshQr(force) { // polls every 5s so the heading flips after a scan; QR itself re-drawn every 20s
+    try {
+      const r = await api('myQr'), changed = r.state !== this.qr.state; this.qr = r;
+      if (r.state != 'none' && (force || changed || Date.now() - this.qrAt > 20000)) {
+        this.qrAt = Date.now();
+        this.$nextTick(() => { const el = document.getElementById('qr'); el.innerHTML = ''; new QRCode(el, {text: r.payload, width: 240, height: 240, correctLevel: QRCode.CorrectLevel.L}); });
+      }
+    } catch (e) {}
+  },
   async startScan() {
-    await this.stopScan(); if (!this.scanSession) return;
+    await this.stopScan();
     this.scanner = new Html5Qrcode('reader');
     this.scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: 240}, async txt => {
       if (this.locked) return; this.locked = true;   // ignore repeat reads for 3s
-      try { const r = await api('scan', {sessionId: this.scanSession, userId: txt}); this.last = r.type == 'in' ? '✅ Clocked IN: ' + r.name : '👋 Clocked OUT: ' + r.name + ' (' + r.hours + 'h)'; }
+      try { const r = await api('scan', {code: txt}); this.last = r.type == 'in' ? '✅ Clocked IN: ' + r.name : '👋 Clocked OUT: ' + r.name + ' (' + r.hours + 'h)'; }
       catch (e) { this.last = '⚠️ ' + e.message; }
       setTimeout(() => this.locked = false, 3000);
     }).catch(() => this.toast('Camera unavailable - allow camera access'));
