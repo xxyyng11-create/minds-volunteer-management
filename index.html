@@ -111,7 +111,7 @@
 
 <script>
 // ---- CONFIG: paste your deployed GAS web-app URL (use a separate dev deployment for testing) ----
-const API_URL = 'PASTE_YOUR_GAS_WEB_APP_URL_HERE';
+const API_URL = 'https://script.google.com/macros/s/AKfycbx0oba3zrQpMOhgu0OvNiSsWH4CkrKqLxtzdDOGEKPuWc275Oo1XCw8SXfV71JJJpAdrg/exec';
 async function api(action, data = {}) {
   const r = await fetch(API_URL, {method: 'POST', body: JSON.stringify({action, token: localStorage.token, ...data})}); // text/plain => no CORS preflight
   const j = await r.json(); if (!j.ok) throw new Error(j.error); return j.data;
