@@ -1,0 +1,146 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MINDS Volunteers</title>
+<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1e3a8a">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+<style type="text/tailwindcss">.inp{@apply w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white}.btn{@apply bg-blue-800 text-white rounded-lg px-4 py-2.5 text-sm font-semibold active:bg-blue-900 disabled:opacity-50}.card{@apply bg-white rounded-xl shadow-sm border border-slate-200 p-4}.tab{@apply flex-1 py-3 text-sm font-medium text-slate-500}.tab.on{@apply text-blue-800 border-b-2 border-blue-800}</style>
+</head>
+<body class="bg-slate-50 text-slate-800" x-data="app()" x-init="init()">
+<div x-show="msg" x-text="msg" @click="msg=''" class="fixed top-2 inset-x-2 z-50 bg-slate-900 text-white p-3 rounded-lg text-sm text-center"></div>
+
+<!-- LOGIN / REGISTER -->
+<main x-show="!user" class="max-w-md mx-auto p-4 space-y-4">
+  <h1 class="text-2xl font-bold text-blue-900 pt-6">MINDS Volunteers</h1>
+  <div class="flex gap-2"><button class="tab" :class="mode=='login'&&'on'" @click="mode='login'">Log in</button><button class="tab" :class="mode=='register'&&'on'" @click="mode='register'">New volunteer</button></div>
+  <form @submit.prevent="mode=='login'?login():register()" class="space-y-2">
+    <input class="inp" placeholder="Username" x-model="f.username" required autocomplete="username">
+    <input class="inp" type="password" placeholder="Password (min 8 chars)" x-model="f.password" required autocomplete="current-password">
+    <template x-if="mode=='register'"><div class="space-y-2">
+      <input class="inp" placeholder="Full name" x-model="f.name" required>
+      <label class="text-xs text-slate-500">Birthday</label><input class="inp" type="date" x-model="f.birthday" required>
+      <input class="inp" type="email" placeholder="Email" x-model="f.email" required>
+      <input class="inp" type="tel" placeholder="Phone number" x-model="f.phone" required>
+      <input class="inp" placeholder="Telegram handle (@...)" x-model="f.telegram" required>
+      <input class="inp" placeholder="Emergency contact name" x-model="f.ecName" required>
+      <input class="inp" type="tel" placeholder="Emergency contact phone" x-model="f.ecPhone" required>
+    </div></template>
+    <button class="btn w-full" :disabled="busy" x-text="mode=='login'?'Log in':'Create account'"></button>
+  </form>
+</main>
+
+<!-- APP -->
+<div x-show="user" x-cloak class="max-w-2xl mx-auto pb-10">
+  <header class="flex items-center justify-between p-4"><div><div class="font-bold text-blue-900">MINDS Volunteers</div><div class="text-xs text-slate-500" x-text="user?.name+' · '+user?.role"></div></div><button class="text-sm text-slate-500 underline" @click="logout()">Log out</button></header>
+  <nav class="flex bg-white border-b sticky top-0 z-10">
+    <button class="tab" :class="tab=='sessions'&&'on'" @click="go('sessions')" x-text="isAdmin?'Sessions':'Book'"></button>
+    <template x-if="!isAdmin"><button class="tab" :class="tab=='mine'&&'on'" @click="go('mine')">My sessions</button></template>
+    <template x-if="!isAdmin"><button class="tab" :class="tab=='qr'&&'on'" @click="go('qr')">My QR</button></template>
+    <template x-if="isAdmin"><button class="tab" :class="tab=='scan'&&'on'" @click="go('scan')">Scan</button></template>
+    <template x-if="isAdmin"><button class="tab" :class="tab=='members'&&'on'" @click="go('members')">Members</button></template>
+  </nav>
+  <section class="p-4 space-y-3">
+
+    <!-- Sessions (volunteer: book / admin: post + roster) -->
+    <div x-show="tab=='sessions'" class="space-y-3">
+      <details x-show="isAdmin" class="card"><summary class="font-semibold cursor-pointer">+ Post a new session</summary>
+        <form @submit.prevent="createSession()" class="space-y-2 mt-3">
+          <input class="inp" placeholder="Title" x-model="s.title" required>
+          <input class="inp" type="date" x-model="s.date" required>
+          <div class="flex gap-2"><input class="inp" type="time" x-model="s.start" required><input class="inp" type="time" x-model="s.end" required></div>
+          <div class="flex gap-2"><input class="inp" placeholder="Venue" x-model="s.venue"><input class="inp w-24" type="number" min="1" placeholder="Slots" x-model="s.capacity"></div>
+          <button class="btn w-full">Post session</button></form></details>
+      <p x-show="!sessions.length" class="text-center text-slate-400 py-8">No sessions posted yet.</p>
+      <template x-for="x in sessions" :key="x.sessionId"><div class="card space-y-2">
+        <div class="flex justify-between"><div><div class="font-semibold" x-text="x.title"></div><div class="text-xs text-slate-500" x-text="x.date+' · '+x.start+'–'+x.end+' · '+x.venue"></div></div><span class="text-xs bg-slate-100 rounded-full px-2 py-1 h-fit" x-text="x.taken+'/'+x.capacity"></span></div>
+        <template x-if="!isAdmin"><div>
+          <button class="btn w-full" x-show="!x.mine" :disabled="x.taken>=x.capacity" @click="book(x.sessionId)" x-text="x.taken>=x.capacity?'Full':'Book this slot'"></button>
+          <div x-show="x.mine" class="text-sm text-center text-emerald-700 font-medium" x-text="x.mine=='confirmed'?'✓ Confirmed':'Booked – awaiting confirmation'"></div></div></template>
+        <template x-if="isAdmin"><div class="divide-y text-sm">
+          <template x-for="r in x.roster" :key="r.bookingId"><div class="py-2 flex items-center justify-between gap-2">
+            <div><div x-text="r.name"></div><div class="text-xs text-slate-500" x-text="r.clockOut?('Done · '+r.hours+'h'):r.clockIn?'Clocked in '+fmt(r.clockIn):(r.status=='confirmed'?'Confirmed · trainee '+r.traineeId:'Pending')"></div></div>
+            <button x-show="r.status=='pending'" class="btn !py-1.5" @click="confirm(r.bookingId)">Confirm</button></div></template>
+          <p x-show="!x.roster.length" class="py-2 text-slate-400">No sign-ups yet.</p></div></template>
+      </div></template>
+    </div>
+
+    <!-- Volunteer: my sessions, trainee info, feedback -->
+    <div x-show="tab=='mine'" class="space-y-3">
+      <p x-show="!mine.length" class="text-center text-slate-400 py-8">You haven't booked anything yet.</p>
+      <template x-for="m in mine" :key="m.session.sessionId"><div class="card space-y-2">
+        <div class="font-semibold" x-text="m.session.title"></div><div class="text-xs text-slate-500" x-text="m.session.date+' · '+m.session.start+'–'+m.session.end+' · '+m.session.venue"></div>
+        <div class="text-sm" :class="m.status=='confirmed'?'text-emerald-700':'text-amber-600'" x-text="m.status=='confirmed'?'✓ Confirmed':'Awaiting confirmation'"></div>
+        <div x-show="m.trainee" class="bg-blue-50 rounded-lg p-3 text-sm space-y-1"><div class="font-semibold">Your trainee: <span x-text="m.trainee?.name"></span> (age <span x-text="m.trainee?.age"></span>)</div><div><b>Needs:</b> <span x-text="m.trainee?.needs||'–'"></span></div><div class="whitespace-pre-line text-slate-600"><b>Notes:</b> <span x-text="m.trainee?.notes||'–'"></span></div></div>
+        <div x-show="m.clockIn" class="text-xs text-slate-500" x-text="m.clockOut?('Clocked out · '+m.hours+' hours'):'Clocked in at '+fmt(m.clockIn)+' – show your QR to clock out'"></div>
+        <div x-show="m.clockIn" class="space-y-2 border-t pt-2"><div class="text-sm font-medium">Session feedback</div>
+          <textarea class="inp" rows="2" placeholder="How did the session go?" x-model="fb[m.session.sessionId].feedback"></textarea>
+          <textarea class="inp" rows="2" placeholder="Any changes you noticed in your trainee?" x-model="fb[m.session.sessionId].traineeUpdate"></textarea>
+          <button class="btn w-full" @click="saveFb(m.session.sessionId)">Save feedback</button></div>
+      </div></template>
+    </div>
+
+    <!-- Volunteer: QR -->
+    <div x-show="tab=='qr'" class="card text-center space-y-3"><p class="text-sm text-slate-600">Show this to a volunteer leader to clock in, and again to clock out.</p><div id="qr" class="flex justify-center"></div><div class="font-semibold" x-text="user?.name"></div></div>
+
+    <!-- Admin: scan -->
+    <div x-show="tab=='scan'" class="space-y-3">
+      <select class="inp" x-model="scanSession" @change="startScan()"><option value="">Choose session to scan for…</option><template x-for="x in sessions" :key="x.sessionId"><option :value="x.sessionId" x-text="x.date+' · '+x.title"></option></template></select>
+      <div id="reader" class="rounded-xl overflow-hidden"></div>
+      <div x-show="last" class="card text-center font-medium" x-text="last"></div>
+    </div>
+
+    <!-- Admin: members -->
+    <div x-show="tab=='members'" class="card divide-y">
+      <template x-for="u in users" :key="u.userId"><div class="py-2 flex items-center justify-between text-sm"><div><div x-text="u.name"></div><div class="text-xs text-slate-500" x-text="u.username+' · '+u.phone+' · '+u.role"></div></div>
+        <button class="btn !py-1.5" x-show="u.userId!=user.userId" @click="setRole(u)" x-text="u.role=='admin'?'Make volunteer':'Promote to admin'"></button></div></template>
+    </div>
+  </section>
+</div>
+
+<script>
+// ---- CONFIG: paste your deployed GAS web-app URL (use a separate dev deployment for testing) ----
+const API_URL = 'https://script.google.com/macros/s/AKfycbx0oba3zrQpMOhgu0OvNiSsWH4CkrKqLxtzdDOGEKPuWc275Oo1XCw8SXfV71JJJpAdrg/exec';
+async function api(action, data = {}) {
+  const r = await fetch(API_URL, {method: 'POST', body: JSON.stringify({action, token: localStorage.token, ...data})}); // text/plain => no CORS preflight
+  const j = await r.json(); if (!j.ok) throw new Error(j.error); return j.data;
+}
+function app() { return {
+  user: null, mode: 'login', tab: 'sessions', busy: false, msg: '', f: {}, s: {}, sessions: [], mine: [], users: [], fb: {}, scanSession: '', last: '', scanner: null, locked: false,
+  get isAdmin() { return this.user?.role == 'admin'; },
+  fmt: t => new Date(t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+  async run(fn, ok) { this.busy = true; try { const r = await fn(); if (ok) this.toast(ok); return r; } catch (e) { this.toast(e.message); } finally { this.busy = false; } },
+  toast(m) { this.msg = m; setTimeout(() => this.msg = '', 3500); },
+  init() { try { this.user = JSON.parse(localStorage.user); } catch (e) {} if (this.user) this.go('sessions'); if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js'); },
+  async enter(d) { localStorage.token = d.token; this.user = d; localStorage.user = JSON.stringify(d); this.go('sessions'); },
+  login() { this.run(async () => this.enter(await api('login', this.f))); },
+  register() { this.run(async () => this.enter(await api('register', this.f)), 'Welcome!'); },
+  logout() { localStorage.clear(); this.user = null; this.stopScan(); },
+  async go(t) {
+    this.tab = t; this.stopScan();
+    try {
+      if (t == 'sessions') this.sessions = await api('listSessions');
+      if (t == 'mine') { this.mine = await api('myBookings'); this.mine.forEach(m => this.fb[m.session.sessionId] ||= {feedback: m.feedback || '', traineeUpdate: ''}); }
+      if (t == 'qr') this.$nextTick(() => { const el = document.getElementById('qr'); el.innerHTML = ''; new QRCode(el, {text: this.user.userId, width: 220, height: 220}); });
+      if (t == 'scan') this.sessions = await api('listSessions');
+      if (t == 'members') this.users = await api('listUsers');
+    } catch (e) { this.toast(e.message); if (/expired/.test(e.message)) this.logout(); }
+  },
+  book(id) { this.run(async () => { await api('book', {sessionId: id}); this.go('sessions'); }, 'Booked! A leader will confirm shortly.'); },
+  confirm(id) { this.run(async () => { await api('confirmBooking', {bookingId: id}); this.go('sessions'); }, 'Confirmed & trainee assigned'); },
+  createSession() { this.run(async () => { await api('createSession', this.s); this.s = {}; this.go('sessions'); }, 'Session posted'); },
+  saveFb(id) { this.run(() => api('saveFeedback', {sessionId: id, ...this.fb[id]}), 'Feedback saved'); },
+  setRole(u) { this.run(async () => { await api('setRole', {userId: u.userId, role: u.role == 'admin' ? 'volunteer' : 'admin'}); this.go('members'); }, 'Role updated'); },
+  async startScan() {
+    await this.stopScan(); if (!this.scanSession) return;
+    this.scanner = new Html5Qrcode('reader');
+    this.scanner.start({facingMode: 'environment'}, {fps: 10, qrbox: 240}, async txt => {
+      if (this.locked) return; this.locked = true;   // ignore repeat reads for 3s
+      try { const r = await api('scan', {sessionId: this.scanSession, userId: txt}); this.last = r.type == 'in' ? '✅ Clocked IN: ' + r.name : '👋 Clocked OUT: ' + r.name + ' (' + r.hours + 'h)'; }
+      catch (e) { this.last = '⚠️ ' + e.message; }
+      setTimeout(() => this.locked = false, 3000);
+    }).catch(() => this.toast('Camera unavailable - allow camera access'));
+  },
+  async stopScan() { if (this.scanner) { try { await this.scanner.stop(); } catch (e) {} this.scanner = null; } }
+}}
+</script></body></html>
