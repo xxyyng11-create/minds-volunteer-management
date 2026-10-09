@@ -1,6 +1,6 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>MINDS Volunteers</title>
-<link rel="manifest" href="manifest.json"><meta name="theme-color" content="#1e3a8a">
+<link rel="manifest" href="manifest.json"><link rel="apple-touch-icon" href="icon-192.png"><script src="config.js"></script><meta name="theme-color" content="#1e3a8a">
 <script src="https://cdn.tailwindcss.com/3.4.17"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
@@ -8,6 +8,7 @@
 <style type="text/tailwindcss">.inp{@apply w-full border border-slate-300 rounded-lg p-2.5 text-sm bg-white}.btn{@apply bg-blue-800 text-white rounded-lg px-4 py-2.5 text-sm font-semibold active:bg-blue-900 disabled:opacity-50}.card{@apply bg-white rounded-xl shadow-sm border border-slate-200 p-4}.tab{@apply flex-1 py-3 text-sm font-medium text-slate-500}.tab.on{@apply text-blue-800 border-b-2 border-blue-800}</style>
 </head>
 <body class="bg-slate-50 text-slate-800" x-data="app()" x-init="init()">
+<div x-show="canInstall||iosHint" x-cloak class="bg-blue-50 text-blue-900 text-sm p-2 text-center"><button x-show="canInstall" class="font-semibold underline" @click="install()">Install this app on your device</button><span x-show="iosHint">To install: tap <b>Share</b> → <b>Add to Home Screen</b></span></div>
 <div x-show="msg" x-text="msg" @click="msg=''" class="fixed top-2 inset-x-2 z-50 bg-slate-900 text-white p-3 rounded-lg text-sm text-center"></div>
 
 <!-- LOGIN / REGISTER -->
@@ -111,7 +112,7 @@
 
 <script>
 // ---- CONFIG: paste your deployed GAS web-app URL (use a separate dev deployment for testing) ----
-const API_URL = 'https://script.google.com/macros/s/AKfycbx0oba3zrQpMOhgu0OvNiSsWH4CkrKqLxtzdDOGEKPuWc275Oo1XCw8SXfV71JJJpAdrg/exec';
+const API_URL = window.APP_CONFIG.API_URL; // set once in config.js
 async function api(action, data = {}) {
   const r = await fetch(API_URL, {method: 'POST', body: JSON.stringify({action, token: localStorage.token, ...data})}); // text/plain => no CORS preflight
   const j = await r.json(); if (!j.ok) throw new Error(j.error); return j.data;
@@ -129,13 +130,22 @@ function fuzzy(q, u) {
   } return score;
 }
 function app() { return {
-  user: null, mode: 'login', tab: 'sessions', busy: false, msg: '', f: {}, s: {venue: 'MINDS Woodlands Gardens School'}, sessions: [], mine: [], users: [], fb: {}, q: '', qr: {state: 'none'}, qrAt: 0, qrTimer: null, locations: ['MINDS Woodlands Gardens School'], last: '', scanner: null, locked: false,
+  user: null, mode: 'login', tab: 'sessions', busy: false, msg: '', f: {}, s: {venue: 'MINDS Woodlands Gardens School'}, sessions: [], mine: [], users: [], fb: {}, canInstall: false, dp: null, iosHint: /iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone, q: '', qr: {state: 'none'}, qrAt: 0, qrTimer: null, locations: ['MINDS Woodlands Gardens School'], last: '', scanner: null, locked: false,
   get isAdmin() { return this.user?.role == 'admin'; },
   get filtered() { const q = this.q.trim(); return q ? this.users.map(u => ({u, s: fuzzy(q, u)})).filter(x => x.s > 0).sort((a, b) => b.s - a.s).map(x => x.u) : this.users; },
   fmt: t => new Date(t).toLocaleTimeString('en-GB', {hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Singapore'}),
   async run(fn, ok) { this.busy = true; try { const r = await fn(); if (ok) this.toast(ok); return r; } catch (e) { this.toast(e.message); } finally { this.busy = false; } },
   toast(m) { this.msg = m; setTimeout(() => this.msg = '', 3500); },
-  init() { try { this.user = JSON.parse(localStorage.user); } catch (e) {} if (this.user) this.go('sessions'); if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js'); },
+  init() {
+    try { this.user = JSON.parse(localStorage.user); } catch (e) {} if (this.user) this.go('sessions');
+    window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); this.dp = e; this.canInstall = true; });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.user && this.tab == 'qr') this.refreshQr(); });
+    if ('serviceWorker' in navigator) { // auto-update: new version installs in background and the page reloads once
+      const had = navigator.serviceWorker.controller; let rl = false;
+      navigator.serviceWorker.register('sw.js').then(r => setInterval(() => r.update(), 36e5));
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (had && !rl) { rl = true; location.reload(); } });
+    }
+  },
   async enter(d) { localStorage.token = d.token; this.user = d; localStorage.user = JSON.stringify(d); this.go('sessions'); },
   login() { this.run(async () => this.enter(await api('login', this.f))); },
   register() { this.run(async () => this.enter(await api('register', this.f)), 'Welcome!'); },
@@ -143,11 +153,11 @@ function app() { return {
   async go(t) {
     this.tab = t; this.stopScan(); clearInterval(this.qrTimer);
     try {
-      if (t == 'sessions') this.sessions = await api('listSessions');
-      if (t == 'mine') { this.mine = await api('myBookings'); this.mine.forEach(m => this.fb[m.session.sessionId] ||= {feedback: m.feedback || '', traineeUpdate: ''}); }
-      if (t == 'qr') { await this.refreshQr(true); this.qrTimer = setInterval(() => this.refreshQr(), 5000); }
+      if (t == 'sessions') await this.load('listSessions', 'sessions');
+      if (t == 'mine') { await this.load('myBookings', 'mine'); this.mine.forEach(m => this.fb[m.session.sessionId] ||= {feedback: m.feedback || '', traineeUpdate: ''}); }
+      if (t == 'qr') { await this.refreshQr(true); this.qrTimer = setInterval(() => { if (!document.hidden) this.refreshQr(); }, 10000); }
       if (t == 'scan') this.startScan();
-      if (t == 'members') this.users = await api('listUsers');
+      if (t == 'members') await this.load('listUsers', 'users');
     } catch (e) { this.toast(e.message); if (/expired/.test(e.message)) this.logout(); }
   },
   book(id) { this.run(async () => { await api('book', {sessionId: id}); this.go('sessions'); }, 'Booked! A leader will confirm shortly.'); },
@@ -155,6 +165,12 @@ function app() { return {
   createSession() { this.run(async () => { await api('createSession', this.s); this.s = {venue: this.locations[0]}; this.go('sessions'); }, 'Session posted'); },
   saveFb(id) { this.run(() => api('saveFeedback', {sessionId: id, ...this.fb[id]}), 'Feedback saved'); },
   setRole(u) { this.run(async () => { await api('setRole', {userId: u.userId, role: u.role == 'admin' ? 'volunteer' : 'admin'}); this.go('members'); }, 'Role updated'); },
+  async load(action, prop) { // show last-known data instantly, then refresh in the background
+    const k = 'c:' + action, init = () => prop == 'mine' && this[prop].forEach(m => this.fb[m.session.sessionId] ||= {feedback: m.feedback || '', traineeUpdate: ''});
+    try { const c = JSON.parse(localStorage[k]); if (c) { this[prop] = c; init(); } } catch (e) {}
+    const d = await api(action); this[prop] = d; init(); localStorage[k] = JSON.stringify(d);
+  },
+  install() { this.dp.prompt(); this.dp = null; this.canInstall = false; },
   async refreshQr(force) { // polls every 5s so the heading flips after a scan; QR itself re-drawn every 20s
     try {
       const r = await api('myQr'), changed = r.state !== this.qr.state; this.qr = r;
